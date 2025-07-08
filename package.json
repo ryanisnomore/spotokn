@@ -1,11 +1,11 @@
 {
   "name": "spotify-tokener",
-  "module": "index.ts",
+  "module": "src/app.ts",
   "type": "module",
   "private": true,
   "scripts": {
-    "start": "bun run index.ts",
-    "dev": "bun run index.ts --watch"
+    "start": "bun --env-file=.env run src/app.ts",
+    "dev": "bun --env-file=.env run src/app.ts --watch"
   },
   "devDependencies": {
     "@types/bun": "latest"
