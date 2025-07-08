@@ -62,21 +62,31 @@ bun run start
 
 ```mermaid
 flowchart TD
-    A[Spotify Tokener Service] --> B[Elysia API]
-    B -->|requests| C[SpotifyTokenService]
-    D[Cron: Refresh Every 5m] --> C
-    
-    C --> E[Token Cache]
-    C --> F[Browser Automation]
-    C --> G[Retry Logic]
-    
-    E -->|cache| H[Response Flow]
-    F -->|get token| H
-    G -->|retries| F
-    
-    H --> I[Success: token+expiry]
-    H --> J[Error: message]
-    H --> K[Health Status]
+    A[Client Request] --> B(Elysia API)
+    B -- GET /api/token --> C[TokenController]
+    B -- GET /health --> D[Health Check]
+
+    C --> F[SpotifyTokenService]
+
+    subgraph SpotifyTokenService Logic
+        F --> G[Token Cache]
+        F --> H[MutexLock]
+        F --> I[BrowserService]
+        F --> J[Auto-Refresh Timer]
+        J -- triggers refresh --> F
+        H -- ensures single operation --> F
+        I -- automates browser --> Spotify[Spotify Web]
+        Spotify -- intercepts token --> F
+        F -- returns token --> G
+    end
+
+    G -- cached/fresh token --> C
+    C -- API Response --> B
+    B -- HTTP Response --> A
+
+    subgraph Global Error Handling
+        B -- errors --> K[ErrorMiddleware]
+    end
 ```
 
 
