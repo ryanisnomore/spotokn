@@ -6,9 +6,8 @@ Fast Spotify access token generator for LavaSrc with caching.
 
 ## Features
 - 🚀 Fast Playwright-based token generation
-- 💾 Smart caching (5-min buffer, 10-min refresh)
 - ⚡ High-performance Elysia API
-- 🔄 Auto-refresh cron job
+- 🔄 Auto-refresh
 - 🛡️ Error resilience with retries
 
 ## Quick Start
