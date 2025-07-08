@@ -1,4 +1,6 @@
-import { Elysia } from 'elysia';
+import { Elysia, t } from 'elysia';
+import { cron } from '@elysiajs/cron';
+import { swagger } from '@elysiajs/swagger';
 import { type Browser, chromium } from 'playwright';
 
 interface SpotifyTokenData {
@@ -17,13 +19,12 @@ interface TokenCache {
 interface LogContext {
     service: string;
     operation?: string;
-    requestId?: string;
 }
 
 class Logger {
     private formatMessage(level: string, context: LogContext, message: string, meta?: any): string {
         const timestamp = new Date().toISOString();
-        const contextStr = `[${context.service}${context.operation ? `:${context.operation}` : ''}${context.requestId ? ` req:${context.requestId}` : ''}]`;
+        const contextStr = `[${context.service}${context.operation ? `:${context.operation}` : ''}]`;
         const metaStr = meta ? ` ${JSON.stringify(meta)}` : '';
         return `${timestamp} ${level.toUpperCase()} ${contextStr} ${message}${metaStr}`;
     }
@@ -52,18 +53,16 @@ class SpotifyTokenService {
         isRefreshing: false
     };
 
-    private readonly BUFFER_TIME = 5 * 60 * 1000; 
+    private readonly BUFFER_TIME = 5 * 60 * 1000;
     private readonly PROACTIVE_REFRESH_TIME = 10 * 60 * 1000;
     private readonly TIMEOUT_MS = 20000;
     private readonly MAX_RETRIES = 3;
     private readonly RETRY_DELAY = 1000;
 
-    private refreshTimer?: NodeJS.Timeout;
     private logger: Logger;
 
     constructor(logger: Logger) {
         this.logger = logger;
-        this.setupProactiveRefresh();
     }
 
     private getContext(operation?: string): LogContext {
@@ -82,17 +81,6 @@ class SpotifyTokenService {
         return this.cache.token !== null &&
             this.cache.expiresAt > Date.now() &&
             this.cache.expiresAt <= Date.now() + this.PROACTIVE_REFRESH_TIME;
-    }
-
-    private setupProactiveRefresh(): void {
-        this.refreshTimer = setInterval(() => {
-            if (this.shouldProactivelyRefresh() && !this.cache.isRefreshing) {
-                this.logger.info(this.getContext('proactiveRefresh'), 'Starting proactive token refresh');
-                this.getToken(true).catch(error => {
-                    this.logger.error(this.getContext('proactiveRefresh'), 'Proactive refresh failed', { error: error.message });
-                });
-            }
-        }, 60000);
     }
 
     private async sleep(ms: number): Promise<void> {
@@ -210,7 +198,7 @@ class SpotifyTokenService {
                     throw error;
                 }
 
-                const delay = this.RETRY_DELAY * Math.pow(2, attempt - 1); // Exponential backoff
+                const delay = this.RETRY_DELAY * Math.pow(2, attempt - 1);
                 this.logger.info(context, `Retrying in ${delay}ms`);
                 await this.sleep(delay);
             }
@@ -289,36 +277,68 @@ class SpotifyTokenService {
         };
     }
 
-    shutdown(): void {
-        if (this.refreshTimer) {
-            clearInterval(this.refreshTimer);
-            this.refreshTimer = undefined;
+    async refreshTokenJob(): Promise<void> {
+        const context = this.getContext('cronRefresh');
+
+        if (this.shouldProactivelyRefresh() && !this.cache.isRefreshing) {
+            this.logger.info(context, 'Starting scheduled token refresh');
+            try {
+                await this.getToken(true);
+                this.logger.info(context, 'Scheduled token refresh completed successfully');
+            } catch (error) {
+                this.logger.error(context, 'Scheduled token refresh failed', {
+                    error: error instanceof Error ? error.message : 'Unknown error'
+                });
+            }
         }
+    }
+
+    shutdown(): void {
         this.logger.info(this.getContext('shutdown'), 'Service shutdown complete');
     }
 }
 
 const logger = new Logger();
-
 const spotifyService = new SpotifyTokenService(logger);
 
-const generateRequestId = () => Math.random().toString(36).substring(2, 15);
-
 const app = new Elysia()
+    .use(
+        swagger({
+            documentation: {
+                info: {
+                    title: 'Spotify Token Service API',
+                    version: '1.0.0',
+                    description: 'A simple API service for managing Spotify tokens (no authentication required)'
+                },
+                tags: [
+                    { name: 'Token', description: 'Spotify token management' },
+                    { name: 'Health', description: 'Health check endpoints' }
+                ]
+            }
+        })
+    )
+    .use(
+        cron({
+            name: 'tokenRefresh',
+            pattern: '*/5 * * * *', // Every 5 minutes
+            timezone: 'UTC',
+            run() {
+                spotifyService.refreshTokenJob();
+            }
+        })
+    )
     .decorate({
         logger,
-        spotifyService,
-        generateRequestId
+        spotifyService
     })
-    .get('/api/token', async ({ query, set, logger, spotifyService, generateRequestId }) => {
-        const requestId = generateRequestId();
+    // Token endpoints (no authentication required)
+    .get('/api/token', async ({ query, set, logger, spotifyService }) => {
         const startTime = Date.now();
         const forceRefresh = ['1', 'true', 'yes'].includes(query.force?.toLowerCase() || '');
 
         const context: LogContext = {
             service: 'TokenAPI',
-            operation: 'getToken',
-            requestId
+            operation: 'getToken'
         };
 
         logger.info(context, 'Token request received', { forceRefresh });
@@ -337,8 +357,7 @@ const app = new Elysia()
                 success: true,
                 ...token,
                 cached: !forceRefresh && spotifyService.getStatus().isValid,
-                timestamp: Date.now(),
-                requestId
+                timestamp: Date.now()
             };
 
         } catch (error) {
@@ -354,17 +373,23 @@ const app = new Elysia()
             return {
                 success: false,
                 error: errorMessage,
-                timestamp: Date.now(),
-                requestId
+                timestamp: Date.now()
             };
         }
+    }, {
+        query: t.Object({
+            force: t.Optional(t.String({ description: 'Force refresh token (1, true, yes)' }))
+        }),
+        detail: {
+            tags: ['Token'],
+            summary: 'Get Spotify access token',
+            description: 'Retrieve a valid Spotify access token. Returns cached token if valid, otherwise fetches a new one.'
+        }
     })
-    .get('/api/token/status', ({ logger, spotifyService, generateRequestId }) => {
-        const requestId = generateRequestId();
+    .get('/api/token/status', ({ logger, spotifyService }) => {
         const context: LogContext = {
             service: 'TokenAPI',
-            operation: 'getStatus',
-            requestId
+            operation: 'getStatus'
         };
 
         logger.debug(context, 'Status request received');
@@ -372,16 +397,67 @@ const app = new Elysia()
         return {
             success: true,
             status: spotifyService.getStatus(),
-            timestamp: Date.now(),
-            requestId
+            timestamp: Date.now()
         };
+    }, {
+        detail: {
+            tags: ['Token'],
+            summary: 'Get token status',
+            description: 'Get current status of the Spotify token cache'
+        }
     })
-    .get('/health', ({ logger, generateRequestId }) => {
-        const requestId = generateRequestId();
+    .post('/api/token/refresh', async ({ set, logger, spotifyService }) => {
+        const startTime = Date.now();
+
+        const context: LogContext = {
+            service: 'TokenAPI',
+            operation: 'manualRefresh'
+        };
+
+        logger.info(context, 'Manual token refresh requested');
+
+        try {
+            const token = await spotifyService.getToken(true);
+            const duration = Date.now() - startTime;
+
+            logger.info(context, 'Manual token refresh successful', { duration });
+
+            return {
+                success: true,
+                ...token,
+                cached: false,
+                timestamp: Date.now()
+            };
+
+        } catch (error) {
+            const duration = Date.now() - startTime;
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+            logger.error(context, 'Manual token refresh failed', {
+                duration,
+                error: errorMessage
+            });
+
+            set.status = 500;
+            return {
+                success: false,
+                error: errorMessage,
+                timestamp: Date.now()
+            };
+        }
+    }, {
+        detail: {
+            tags: ['Token'],
+            summary: 'Force refresh token',
+            description: 'Manually force a token refresh, bypassing cache'
+        }
+    })
+    // Health endpoint
+    .get('/health', ({ logger }) => {
+        
         const context: LogContext = {
             service: 'HealthAPI',
             operation: 'healthCheck',
-            requestId
         };
 
         logger.debug(context, 'Health check received');
@@ -389,15 +465,19 @@ const app = new Elysia()
         return {
             status: 'healthy',
             uptime: process.uptime(),
+            memory: process.memoryUsage(),
             timestamp: Date.now(),
-            requestId
         };
+    }, {
+        detail: {
+            tags: ['Health'],
+            summary: 'Health check',
+            description: 'Check if the service is running properly'
+        }
     })
-    .onError(({ code, error, set, logger, generateRequestId }) => {
-        const requestId = generateRequestId();
+    .onError(({ code, error, set, logger }) => {
         const context: LogContext = {
             service: 'ErrorHandler',
-            requestId
         };
 
         logger.error(context, 'Server error occurred', {
@@ -409,7 +489,15 @@ const app = new Elysia()
             set.status = 404;
             return {
                 error: 'Endpoint not found',
-                requestId,
+                timestamp: Date.now()
+            };
+        }
+
+        if (code === 'VALIDATION') {
+            set.status = 400;
+            return {
+                error: 'Validation error',
+                details: error instanceof Error ? error.message : 'Invalid request',
                 timestamp: Date.now()
             };
         }
@@ -417,13 +505,11 @@ const app = new Elysia()
         set.status = 500;
         return {
             error: 'Internal server error',
-            requestId,
             timestamp: Date.now()
         };
     });
 
 export default app;
-
 
 const shutdown = () => {
     logger.info({ service: 'Server' }, 'Shutting down service gracefully...');

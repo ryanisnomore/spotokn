@@ -36,8 +36,10 @@ To get started with `spotify-tokener`, follow these steps:
 To run the `spotify-tokener` and generate a token:
 
 ```bash
-bun run index.ts
+bun run start
 ```
+## API Documentation
+This will start the server on port 3000. You can access the API documentation at `http://localhost:3000/swagger`.
 
 ## API Endpoints
 
@@ -62,7 +64,6 @@ This endpoint retrieves a Spotify access token. It can optionally force a refres
   "isAnonymous": false,
   "cached": false,
   "timestamp": 1678886300000,
-  "requestId": "..."
 }
 ```
 
@@ -73,7 +74,6 @@ This endpoint retrieves a Spotify access token. It can optionally force a refres
   "success": false,
   "error": "Error message",
   "timestamp": 1678886300000,
-  "requestId": "..."
 }
 ```
 
@@ -96,7 +96,6 @@ This endpoint provides the current status of the Spotify token service, includin
     "timeUntilProactiveRefresh": 40000
   },
   "timestamp": 1678886300000,
-  "requestId": "..."
 }
 ```
 
@@ -111,7 +110,6 @@ This endpoint is a simple health check to determine if the service is running.
   "status": "healthy",
   "uptime": 3600,
   "timestamp": 1678886300000,
-  "requestId": "..."
 }
 ```
 
@@ -124,7 +122,6 @@ The application includes a global error handler for unhandled routes and interna
 ```json
 {
   "error": "Endpoint not found",
-  "requestId": "...",
   "timestamp": 1678886300000
 }
 ```
@@ -134,7 +131,6 @@ The application includes a global error handler for unhandled routes and interna
 ```json
 {
   "error": "Internal server error",
-  "requestId": "...",
   "timestamp": 1678886300000
 }
 ```
