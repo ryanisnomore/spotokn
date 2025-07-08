@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia';
 import { cron } from '@elysiajs/cron';
 import { swagger } from '@elysiajs/swagger';
+import { Logestic } from 'logestic';
 import { type Browser, chromium } from 'playwright';
 
 interface SpotifyTokenData {
@@ -16,35 +17,7 @@ interface TokenCache {
     isRefreshing: boolean;
 }
 
-interface LogContext {
-    service: string;
-    operation?: string;
-}
-
-class Logger {
-    private formatMessage(level: string, context: LogContext, message: string, meta?: any): string {
-        const timestamp = new Date().toISOString();
-        const contextStr = `[${context.service}${context.operation ? `:${context.operation}` : ''}]`;
-        const metaStr = meta ? ` ${JSON.stringify(meta)}` : '';
-        return `${timestamp} ${level.toUpperCase()} ${contextStr} ${message}${metaStr}`;
-    }
-
-    info(context: LogContext, message: string, meta?: any) {
-        console.log(this.formatMessage('info', context, message, meta));
-    }
-
-    error(context: LogContext, message: string, meta?: any) {
-        console.error(this.formatMessage('error', context, message, meta));
-    }
-
-    warn(context: LogContext, message: string, meta?: any) {
-        console.warn(this.formatMessage('warn', context, message, meta));
-    }
-
-    debug(context: LogContext, message: string, meta?: any) {
-        console.debug(this.formatMessage('debug', context, message, meta));
-    }
-}
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 class SpotifyTokenService {
     private cache: TokenCache = {
@@ -55,22 +28,9 @@ class SpotifyTokenService {
 
     private readonly BUFFER_TIME = 5 * 60 * 1000;
     private readonly PROACTIVE_REFRESH_TIME = 10 * 60 * 1000;
-    private readonly TIMEOUT_MS = 20000;
+    private readonly TIMEOUT_MS = 20000 * 1000; // 20 seconds
     private readonly MAX_RETRIES = 3;
     private readonly RETRY_DELAY = 1000;
-
-    private logger: Logger;
-
-    constructor(logger: Logger) {
-        this.logger = logger;
-    }
-
-    private getContext(operation?: string): LogContext {
-        return {
-            service: 'SpotifyTokenService',
-            operation
-        };
-    }
 
     private isTokenValid(): boolean {
         return this.cache.token !== null &&
@@ -89,11 +49,8 @@ class SpotifyTokenService {
 
     private async fetchTokenFromSpotify(): Promise<SpotifyTokenData> {
         let browser: Browser | null = null;
-        const context = this.getContext('fetchToken');
 
         try {
-            this.logger.info(context, 'Starting browser launch');
-
             browser = await chromium.launch({
                 headless: true,
                 args: ['--no-sandbox', '--disable-setuid-sandbox']
@@ -122,8 +79,6 @@ class SpotifyTokenService {
                     try {
                         const url = response.url();
                         if (url.includes('/api/token')) {
-                            this.logger.debug(context, 'Intercepted token response', { url, status: response.status() });
-
                             if (!response.ok()) {
                                 throw new Error(`Token API returned ${response.status()}`);
                             }
@@ -133,13 +88,6 @@ class SpotifyTokenService {
                             if (!resolved) {
                                 resolved = true;
                                 clearTimeout(timeoutId);
-
-                                this.logger.info(context, 'Token successfully retrieved', {
-                                    expiresAt: new Date(tokenData.accessTokenExpirationTimestampMs).toISOString(),
-                                    isAnonymous: tokenData.isAnonymous,
-                                    hasClientId: !!tokenData.clientId
-                                });
-
                                 resolve(tokenData);
                             }
                         }
@@ -147,14 +95,11 @@ class SpotifyTokenService {
                         if (!resolved) {
                             resolved = true;
                             clearTimeout(timeoutId);
-                            this.logger.error(context, 'Error processing token response', { error: error instanceof Error ? error.message : 'Unknown error' });
                             reject(error);
                         }
                     }
                 });
             });
-
-            this.logger.debug(context, 'Navigating to Spotify');
             await page.goto('https://open.spotify.com/', {
                 waitUntil: 'networkidle',
                 timeout: this.TIMEOUT_MS
@@ -164,42 +109,28 @@ class SpotifyTokenService {
             return tokenData;
 
         } catch (error) {
-            this.logger.error(context, 'Failed to fetch Spotify token', {
-                error: error instanceof Error ? error.message : 'Unknown error'
-            });
+            console.error(`[SpotifyTokenService:fetchToken] Failed to fetch Spotify token: ${error instanceof Error ? error.message : 'Unknown error'}`);
             throw error;
         } finally {
             if (browser) {
                 try {
                     await browser.close();
-                    this.logger.debug(context, 'Browser closed successfully');
                 } catch (closeError) {
-                    this.logger.warn(context, 'Error closing browser', {
-                        error: closeError instanceof Error ? closeError.message : 'Unknown error'
-                    });
+                    console.warn(`[SpotifyTokenService:fetchToken] Error closing browser: ${closeError instanceof Error ? closeError.message : 'Unknown error'}`);
                 }
             }
         }
     }
 
     private async fetchWithRetry(): Promise<SpotifyTokenData> {
-        const context = this.getContext('fetchWithRetry');
-
         for (let attempt = 1; attempt <= this.MAX_RETRIES; attempt++) {
             try {
-                this.logger.info(context, `Attempt ${attempt}/${this.MAX_RETRIES} to fetch token`);
                 return await this.fetchTokenFromSpotify();
             } catch (error) {
-                this.logger.warn(context, `Attempt ${attempt} failed`, {
-                    error: error instanceof Error ? error.message : 'Unknown error'
-                });
-
                 if (attempt === this.MAX_RETRIES) {
                     throw error;
                 }
-
                 const delay = this.RETRY_DELAY * Math.pow(2, attempt - 1);
-                this.logger.info(context, `Retrying in ${delay}ms`);
                 await this.sleep(delay);
             }
         }
@@ -208,57 +139,35 @@ class SpotifyTokenService {
     }
 
     async getToken(forceRefresh: boolean = false): Promise<SpotifyTokenData> {
-        const context = this.getContext('getToken');
-
         if (!forceRefresh && this.isTokenValid()) {
-            this.logger.debug(context, 'Returning cached token', {
-                expiresAt: new Date(this.cache.expiresAt).toISOString(),
-                timeUntilExpiry: this.cache.expiresAt - Date.now()
-            });
             return this.cache.token!;
         }
 
         if (this.cache.isRefreshing) {
-            this.logger.info(context, 'Token refresh in progress, waiting...');
-
             const startWait = Date.now();
             const waitTimeout = 30000;
 
             while (this.cache.isRefreshing && (Date.now() - startWait) < waitTimeout) {
                 await this.sleep(100);
             }
-
             if (this.cache.isRefreshing) {
-                this.logger.error(context, 'Timeout waiting for token refresh');
                 throw new Error('Token refresh timeout');
             }
 
             if (this.isTokenValid()) {
-                this.logger.info(context, 'Returning token from concurrent refresh');
                 return this.cache.token!;
             }
         }
-
         this.cache.isRefreshing = true;
-        this.logger.info(context, 'Starting token refresh', { forceRefresh });
 
         try {
             const tokenData = await this.fetchWithRetry();
-
             this.cache.token = tokenData;
             this.cache.expiresAt = tokenData.accessTokenExpirationTimestampMs;
-
-            this.logger.info(context, 'Token cache updated successfully', {
-                expiresAt: new Date(this.cache.expiresAt).toISOString(),
-                timeUntilExpiry: this.cache.expiresAt - Date.now()
-            });
-
             return tokenData;
 
         } catch (error) {
-            this.logger.error(context, 'Token refresh failed', {
-                error: error instanceof Error ? error.message : 'Unknown error'
-            });
+            console.error(`[SpotifyTokenService:getToken] Token refresh failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
             throw error;
         } finally {
             this.cache.isRefreshing = false;
@@ -278,30 +187,20 @@ class SpotifyTokenService {
     }
 
     async refreshTokenJob(): Promise<void> {
-        const context = this.getContext('cronRefresh');
-
         if (this.shouldProactivelyRefresh() && !this.cache.isRefreshing) {
-            this.logger.info(context, 'Starting scheduled token refresh');
             try {
                 await this.getToken(true);
-                this.logger.info(context, 'Scheduled token refresh completed successfully');
             } catch (error) {
-                this.logger.error(context, 'Scheduled token refresh failed', {
-                    error: error instanceof Error ? error.message : 'Unknown error'
-                });
+                console.error(`[SpotifyTokenService:cronRefresh] Scheduled token refresh failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
             }
         }
     }
-
-    shutdown(): void {
-        this.logger.info(this.getContext('shutdown'), 'Service shutdown complete');
-    }
 }
 
-const logger = new Logger();
-const spotifyService = new SpotifyTokenService(logger);
+const spotifyService = new SpotifyTokenService();
 
 const app = new Elysia()
+    .use(Logestic.preset('fancy'))
     .use(
         swagger({
             documentation: {
@@ -328,30 +227,13 @@ const app = new Elysia()
         })
     )
     .decorate({
-        logger,
         spotifyService
     })
-    // Token endpoints (no authentication required)
-    .get('/api/token', async ({ query, set, logger, spotifyService }) => {
-        const startTime = Date.now();
+    .get('/api/token', async ({ query, set, spotifyService }: { query: { force?: string }, set: { status?: number }, spotifyService: SpotifyTokenService }) => {
         const forceRefresh = ['1', 'true', 'yes'].includes(query.force?.toLowerCase() || '');
-
-        const context: LogContext = {
-            service: 'TokenAPI',
-            operation: 'getToken'
-        };
-
-        logger.info(context, 'Token request received', { forceRefresh });
 
         try {
             const token = await spotifyService.getToken(forceRefresh);
-            const duration = Date.now() - startTime;
-
-            logger.info(context, 'Token request successful', {
-                duration,
-                forceRefresh,
-                cached: !forceRefresh && spotifyService.getStatus().isValid
-            });
 
             return {
                 success: true,
@@ -361,13 +243,7 @@ const app = new Elysia()
             };
 
         } catch (error) {
-            const duration = Date.now() - startTime;
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-
-            logger.error(context, 'Token request failed', {
-                duration,
-                error: errorMessage
-            });
 
             set.status = 500;
             return {
@@ -386,13 +262,7 @@ const app = new Elysia()
             description: 'Retrieve a valid Spotify access token. Returns cached token if valid, otherwise fetches a new one.'
         }
     })
-    .get('/api/token/status', ({ logger, spotifyService }) => {
-        const context: LogContext = {
-            service: 'TokenAPI',
-            operation: 'getStatus'
-        };
-
-        logger.debug(context, 'Status request received');
+    .get('/api/token/status', ({ spotifyService }: { spotifyService: SpotifyTokenService }) => {
 
         return {
             success: true,
@@ -406,21 +276,9 @@ const app = new Elysia()
             description: 'Get current status of the Spotify token cache'
         }
     })
-    .post('/api/token/refresh', async ({ set, logger, spotifyService }) => {
-        const startTime = Date.now();
-
-        const context: LogContext = {
-            service: 'TokenAPI',
-            operation: 'manualRefresh'
-        };
-
-        logger.info(context, 'Manual token refresh requested');
-
+    .post('/api/token/refresh', async ({ set, spotifyService }: { set: { status?: number }, spotifyService: SpotifyTokenService }) => {
         try {
             const token = await spotifyService.getToken(true);
-            const duration = Date.now() - startTime;
-
-            logger.info(context, 'Manual token refresh successful', { duration });
 
             return {
                 success: true,
@@ -430,13 +288,7 @@ const app = new Elysia()
             };
 
         } catch (error) {
-            const duration = Date.now() - startTime;
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-
-            logger.error(context, 'Manual token refresh failed', {
-                duration,
-                error: errorMessage
-            });
 
             set.status = 500;
             return {
@@ -453,14 +305,8 @@ const app = new Elysia()
         }
     })
     // Health endpoint
-    .get('/health', ({ logger }) => {
-        
-        const context: LogContext = {
-            service: 'HealthAPI',
-            operation: 'healthCheck',
-        };
-
-        logger.debug(context, 'Health check received');
+    .get('/health', () => {
+        console.log('[HealthAPI:healthCheck] Health check received');
 
         return {
             status: 'healthy',
@@ -475,15 +321,8 @@ const app = new Elysia()
             description: 'Check if the service is running properly'
         }
     })
-    .onError(({ code, error, set, logger }) => {
-        const context: LogContext = {
-            service: 'ErrorHandler',
-        };
-
-        logger.error(context, 'Server error occurred', {
-            code,
-            error: error instanceof Error ? error.message : 'Unknown error'
-        });
+    .onError(({ code, error, set }) => {
+        console.error(`[ErrorHandler] Server error occurred - Code: ${code}, Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
 
         if (code === 'NOT_FOUND') {
             set.status = 404;
@@ -509,11 +348,12 @@ const app = new Elysia()
         };
     });
 
-export default app;
+app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+});
 
 const shutdown = () => {
-    logger.info({ service: 'Server' }, 'Shutting down service gracefully...');
-    spotifyService.shutdown();
+    console.log('[Server] Shutting down service gracefully...');
     process.exit(0);
 };
 
