@@ -95,10 +95,6 @@ flowchart TD
 - Monitor `/api/token/status` for proactive refresh timing
 - Scale horizontally for high-traffic scenarios
 
-## 📄 License
-
-MIT License - See [LICENSE](LICENSE) file for details.
-
 ---
 
 **Need help?** Open an issue on [GitHub](https://github.com/appujet/spotify-tokener/issues) or check the [Wiki](https://github.com/appujet/spotify-tokener/wiki) for detailed guides.
