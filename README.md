@@ -4,6 +4,11 @@ To install dependencies:
 
 ```bash
 bun install
+
+```
+Please run the following command to download Playwright binaries for your platform:
+```bash
+npx playwright install
 ```
 
 To run:
