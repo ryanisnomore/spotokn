@@ -38,3 +38,103 @@ To run the `spotify-tokener` and generate a token:
 ```bash
 bun run index.ts
 ```
+
+## API Endpoints
+
+The `spotify-tokener` exposes the following API endpoints:
+
+### `GET /api/token`
+
+This endpoint retrieves a Spotify access token. It can optionally force a refresh of the token.
+
+**Query Parameters:**
+
+*   `force` (optional): Set to `1`, `true`, or `yes` to force a refresh of the token, bypassing the cache.
+
+**Successful Response (Status: 200 OK):**
+
+```json
+{
+  "success": true,
+  "accessToken": "...",
+  "accessTokenExpirationTimestampMs": 1678886400000,
+  "clientId": "...",
+  "isAnonymous": false,
+  "cached": false,
+  "timestamp": 1678886300000,
+  "requestId": "..."
+}
+```
+
+**Error Response (Status: 500 Internal Server Error):**
+
+```json
+{
+  "success": false,
+  "error": "Error message",
+  "timestamp": 1678886300000,
+  "requestId": "..."
+}
+```
+
+### `GET /api/token/status`
+
+This endpoint provides the current status of the Spotify token service, including cache information and refresh status.
+
+**Successful Response (Status: 200 OK):**
+
+```json
+{
+  "success": true,
+  "status": {
+    "hasToken": true,
+    "isValid": true,
+    "shouldProactivelyRefresh": false,
+    "expiresAt": 1678886400000,
+    "isRefreshing": false,
+    "timeUntilExpiry": 100000,
+    "timeUntilProactiveRefresh": 40000
+  },
+  "timestamp": 1678886300000,
+  "requestId": "..."
+}
+```
+
+### `GET /health`
+
+This endpoint is a simple health check to determine if the service is running.
+
+**Successful Response (Status: 200 OK):**
+
+```json
+{
+  "status": "healthy",
+  "uptime": 3600,
+  "timestamp": 1678886300000,
+  "requestId": "..."
+}
+```
+
+### Error Handling
+
+The application includes a global error handler for unhandled routes and internal server errors.
+
+**Not Found Response (Status: 404 Not Found):**
+
+```json
+{
+  "error": "Endpoint not found",
+  "requestId": "...",
+  "timestamp": 1678886300000
+}
+```
+
+**Internal Server Error Response (Status: 500 Internal Server Error):**
+
+```json
+{
+  "error": "Internal server error",
+  "requestId": "...",
+  "timestamp": 1678886300000
+}
+```
