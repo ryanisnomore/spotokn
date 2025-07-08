@@ -1,20 +1,40 @@
 # spotify-tokener
 
-To install dependencies:
+`spotify-tokener` is a utility designed to generate Spotify access tokens, primarily for use with the `lavasrc` plugin. This project simplifies the process of obtaining the necessary authentication tokens to integrate Spotify services into applications that utilize `lavasrc`.
 
-```bash
-bun install
+## Features
 
-```
-Please run the following command to download Playwright binaries for your platform:
-```bash
-npx playwright install
-```
+- Generates Spotify access tokens.
+- Designed for seamless integration with the `lavasrc` plugin.
 
-To run:
+## Installation
+
+To get started with `spotify-tokener`, follow these steps:
+
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/appujet/spotify-tokener.git
+    cd spotify-tokener
+    ```
+
+2.  **Install dependencies:**
+    This project uses [Bun](https://bun.sh) as its JavaScript runtime and package manager. If you don't have Bun installed, you can find installation instructions on their official website.
+
+    ```bash
+    bun install
+    ```
+
+3.  **Download Playwright binaries:**
+    `spotify-tokener` utilizes Playwright for browser automation. Download the necessary binaries for your platform:
+
+    ```bash
+    npx playwright install
+    ```
+
+## Usage
+
+To run the `spotify-tokener` and generate a token:
 
 ```bash
 bun run index.ts
 ```
-
-This project was created using `bun init` in bun v1.2.18. [Bun](https://bun.sh) is a fast all-in-one JavaScript runtime.
