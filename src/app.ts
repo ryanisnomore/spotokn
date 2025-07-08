@@ -40,6 +40,8 @@ class ApplicationServer {
                 status: 'healthy',
                 timestamp: Date.now(),
                 uptime: process.uptime(),
+                version: `Bun v${Bun.version}`,
+                message: 'Server is running smoothly'
             }))
             .onError(({ code, error, set }) => {
                 return ErrorMiddleware.handleGlobalError(code, error, (status) => {

@@ -16,6 +16,7 @@ git clone https://github.com/appujet/spotify-tokener.git
 cd spotify-tokener
 bun install
 npx playwright install
+npx playwright install-deps
 bun run start
 ```
 
