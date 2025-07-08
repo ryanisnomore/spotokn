@@ -22,8 +22,6 @@ bun run start
 
 ## API Endpoints
 - `GET /api/token` - Get token (`?force=1` to refresh)
-- `GET /api/token/status` - Check token status
-- `POST /api/token/refresh` - Force refresh
 - `GET /health` - Service health
 
 ## LavaSrc Config
