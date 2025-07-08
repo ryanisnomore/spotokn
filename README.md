@@ -1,6 +1,6 @@
 # spotify-tokener
 
-`spotify-tokener` is a utility designed to generate Spotify access tokens, primarily for use with the `lavasrc` plugin. This project simplifies the process of obtaining the necessary authentication tokens to integrate Spotify services into applications that utilize `lavasrc`.
+`spotify-tokener` is a utility designed to generate Spotify access tokens, primarily for use with the `lavasrc` plugin.
 
 ## Features
 
