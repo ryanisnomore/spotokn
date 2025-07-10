@@ -7,28 +7,40 @@ export class BrowserService {
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-gpu',
-        '--disable-extensions'
+        '--disable-extensions',
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding'
     ];
 
     static async createBrowserInstance(): Promise<Browser> {
         const customExecutablePath = Bun.env.BROWSER_PATH?.trim();
 
+        const headlessMode = Bun.env.HEADLESS !== 'false';
+
         const launchConfig: LaunchOptions = {
-            headless: true,
+            headless: headlessMode,
             args: this.LAUNCH_ARGS,
-            timeout: this.DEFAULT_TIMEOUT
+            timeout: this.DEFAULT_TIMEOUT,
+            devtools: false
         };
 
         if (customExecutablePath) {
             launchConfig.executablePath = customExecutablePath;
         }
 
+        console.log(`Launching browser in ${headlessMode ? 'headless' : 'non-headless'} mode`);
         return await chromium.launch(launchConfig);
     }
 
     static async createNewPage(browser: Browser): Promise<Page> {
         const page = await browser.newPage();
         await page.setDefaultTimeout(this.DEFAULT_TIMEOUT);
+
+        await page.setExtraHTTPHeaders({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        });
+
         return page;
     }
 
@@ -40,4 +52,3 @@ export class BrowserService {
         }
     }
 }
-  

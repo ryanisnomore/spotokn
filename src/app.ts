@@ -25,16 +25,24 @@ class ApplicationServer {
             })
             .get('/api/token', async ({
                 query,
+                headers,
                 set,
                 tokenController
             }: {
                 query: { force?: string },
+                headers: Record<string, string | undefined>,
                 set: { status?: number },
                 tokenController: TokenController
             }) => {
-                return await tokenController.handleTokenRequest(query, (status) => {
-                    set.status = status;
-                });
+                const cookies = this.parseCookies(headers.cookie);
+
+                return await tokenController.handleTokenRequest(
+                    query,
+                    cookies,
+                    (status) => {
+                        set.status = status;
+                    }
+                );
             })
             .get('/health', () => ({
                 status: 'healthy',
@@ -50,11 +58,27 @@ class ApplicationServer {
             });
     }
 
+    private parseCookies(cookieHeader?: string): Record<string, string> | undefined {
+        if (!cookieHeader) return undefined;
+
+        const cookies: Record<string, string> = {};
+
+        cookieHeader.split(';').forEach(cookie => {
+            const [name, value] = cookie.trim().split('=');
+            if (name && value) {
+                cookies[name] = decodeURIComponent(value);
+            }
+        });
+
+        return Object.keys(cookies).length > 0 ? cookies : undefined;
+    }
+
     public startServer(): void {
         this.app.listen(SERVER_PORT, () => {
             console.log(`Server running on port ${SERVER_PORT}`);
             console.log(`Health check: http://localhost:${SERVER_PORT}/health`);
             console.log(`Token endpoint: http://localhost:${SERVER_PORT}/api/token`);
+            console.log(`Send cookies (especially sp_dc) in requests for authentication`);
         });
 
         this.setupGracefulShutdown();
@@ -72,7 +96,6 @@ class ApplicationServer {
         process.on("SIGTERM", gracefulShutdown);
     }
 }
-
 
 const server = new ApplicationServer();
 server.startServer();

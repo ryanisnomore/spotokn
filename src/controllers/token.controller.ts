@@ -6,12 +6,23 @@ export class TokenController {
 
     async handleTokenRequest(
         queryParams: { force?: string },
+        cookies: Record<string, string> | undefined,
         setStatus: (status: number) => void
     ): Promise<SpotifyTokenData | ApiErrorResponse> {
         const shouldForceRefresh = this.parseForceParameter(queryParams.force);
 
+        const cookieArray = this.extractCookies(cookies);
+
+        const spDcCookie = cookieArray.find(c => c.name === 'sp_dc');
+        if (spDcCookie) {
+            console.log('sp_dc cookie received for authentication');
+        }
+
         try {
-            const tokenData = await this.tokenService.retrieveAccessToken(shouldForceRefresh);
+            const tokenData = await this.tokenService.retrieveAccessToken(
+                shouldForceRefresh,
+                cookieArray.length > 0 ? cookieArray : undefined
+            );
 
             if (!tokenData) {
                 setStatus(503);
@@ -39,5 +50,14 @@ export class TokenController {
 
         const truthy = ["1", "yes", "true", "on"];
         return truthy.includes(forceParam.toLowerCase());
+    }
+
+    private extractCookies(cookies?: Record<string, string>): Array<{ name: string, value: string }> {
+        if (!cookies) return [];
+
+        return Object.entries(cookies).map(([name, value]) => ({
+            name,
+            value
+        }));
     }
 }
