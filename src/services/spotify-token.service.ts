@@ -13,8 +13,8 @@ export class SpotifyTokenService {
 
     private static readonly SPOTIFY_OPEN_URL = 'https://open.spotify.com/';
     private static readonly TOKEN_ENDPOINT = '/api/token';
-    private static readonly REFRESH_BUFFER_MS = 60000; // 1 minute before expiry
-    private static readonly MIN_REFRESH_INTERVAL = 30000; // 30 seconds minimum
+    private static readonly REFRESH_BUFFER_MS = 60000;
+    private static readonly MIN_REFRESH_INTERVAL = 30000;
     private static readonly REQUEST_TIMEOUT = 30000;
 
     constructor() {
@@ -38,8 +38,37 @@ export class SpotifyTokenService {
         this.browser = await BrowserService.createBrowserInstance();
         this.page = await BrowserService.createNewPage(this.browser);
 
+        await this.setupRequestInterception();
+
         await this.page.goto(SpotifyTokenService.SPOTIFY_OPEN_URL);
         console.log('Browser session initialized with persistent Spotify tab');
+    }
+
+    private async setupRequestInterception(): Promise<void> {
+        if (!this.page) return;
+
+        await this.page.route("**/*", (route) => {
+            const req = route.request();
+            const url = req.url();
+            const type = req.resourceType();
+
+            const blockedTypes = ["image", "stylesheet", "font", "media", "websocket", "other"];
+            const blockedUrls = ["google-analytics", "doubleclick.net", "googletagmanager.com"];
+            const blockedPrefixes = [
+                "https://open.spotifycdn.com/cdn/images/",
+                "https://encore.scdn.co/fonts/"
+            ];
+
+            if (
+                blockedTypes.includes(type) ||
+                blockedUrls.some((s) => url.includes(s)) ||
+                blockedPrefixes.some((prefix) => url.startsWith(prefix))
+            ) {
+                return route.abort();
+            }
+
+            return route.continue();
+        });
     }
 
     private scheduleTokenRefresh(): void {
