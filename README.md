@@ -44,6 +44,24 @@ spotify:
 }
 ```
 
+## 🐳 Docker
+
+You can containerize the Spotify Tokener application using Docker.
+
+### Build the Docker Image
+Navigate to the root directory of the project and run:
+```bash
+docker build -t spotify-tokener .
+```
+This command builds a Docker image named `spotify-tokener`.
+
+### Run the Docker Container
+To run the container and map port 3000 from the container to your host, while also providing environment variables from your local `.env` file:
+```bash
+docker run -p 3000:3000 --env-file .env spotify-tokener
+```
+Ensure you have a `.env` file in your project root with necessary environment variables (e.g., `PORT`).
+
 ## 🛠️ Development
 
 ### Prerequisites
@@ -58,38 +76,6 @@ bun run dev
 # Production build
 bun run start
 ```
-
-### 🏗️ Architecture Overview
-
-```mermaid
-flowchart TD
-    A[Client Request] --> B(Elysia API)
-    B -- GET /api/token --> C[TokenController]
-    B -- GET /health --> D[Health Check]
-
-    C --> F[SpotifyTokenService]
-
-    subgraph SpotifyTokenService Logic
-        F --> G[Token Cache]
-        F --> H[MutexLock]
-        F --> I[BrowserService]
-        F --> J[Auto-Refresh Timer]
-        J -- triggers refresh --> F
-        H -- ensures single operation --> F
-        I -- automates browser --> Spotify[Spotify Web]
-        Spotify -- intercepts token --> F
-        F -- returns token --> G
-    end
-
-    G -- cached/fresh token --> C
-    C -- API Response --> B
-    B -- HTTP Response --> A
-
-    subgraph Global Error Handling
-        B -- errors --> K[ErrorMiddleware]
-    end
-```
-
 
 ## 🔍 Troubleshooting
 

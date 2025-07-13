@@ -82,18 +82,33 @@ class ApplicationServer {
         });
 
         this.setupGracefulShutdown();
+        this.setupGlobalErrorHandling();
     }
 
     private setupGracefulShutdown(): void {
-        const gracefulShutdown = () => {
-            console.log('\nInitiating graceful shutdown...');
+        const gracefulShutdown = (signal: string) => {
+            console.log(`\nReceived ${signal}. Initiating graceful shutdown...`);
             this.tokenService.cleanup();
             console.log('Service shutdown completed');
             process.exit(0);
         };
 
-        process.on("SIGINT", gracefulShutdown);
-        process.on("SIGTERM", gracefulShutdown);
+        process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+        process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+    }
+
+    private setupGlobalErrorHandling(): void {
+        process.on('uncaughtException', (error) => {
+            console.error('[UncaughtException] Application crashed due to unhandled exception:', error);
+            this.tokenService.cleanup();
+            process.exit(1);
+        });
+
+        process.on('unhandledRejection', (reason, promise) => {
+            console.error('[UnhandledRejection] Application crashed due to unhandled promise rejection:', reason, promise);
+            this.tokenService.cleanup();
+            process.exit(1);
+        });
     }
 }
 
