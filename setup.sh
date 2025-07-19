@@ -43,32 +43,6 @@ info "Installing system dependencies for Playwright..."
 # Update package list
 apt-get update -qq
 
-# Install essential dependencies for headless browser
-apt-get install -y \
-    wget \
-    gnupg \
-    ca-certificates \
-    fonts-liberation \
-    libasound2 \
-    libatk-bridge2.0-0 \
-    libatk1.0-0 \
-    libatspi2.0-0 \
-    libcups2 \
-    libdbus-1-3 \
-    libdrm2 \
-    libgtk-3-0 \
-    libnspr4 \
-    libnss3 \
-    libwayland-client0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxkbcommon0 \
-    libxrandr2 \
-    xvfb \
-    fonts-noto-color-emoji \
-    libgbm1
-
 # ——————————————————————————————————————————————————————————————————
 # 2) INSTALL BUN (if needed)
 # ——————————————————————————————————————————————————————————————————
@@ -104,8 +78,7 @@ info "Installing dependencies with Bun…"
 su -l "$INSTALLER_USER" -c "cd $DIR && bun install --production"
 
 info "Installing Playwright browsers and dependencies..."
-su -l "$INSTALLER_USER" -c "cd $DIR && npx playwright install chromium"
-su -l "$INSTALLER_USER" -c "cd $DIR && npx playwright install-deps chromium"
+su -l "$INSTALLER_USER" -c "cd $DIR && npx playwright install --with-deps"
 
 # ——————————————————————————————————————————————————————————————————
 # 4) CREATE ENV FILE (if not exists)
