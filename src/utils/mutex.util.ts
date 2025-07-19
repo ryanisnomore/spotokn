@@ -2,7 +2,7 @@ export class MutexLock {
     private isLocked = false;
     private pendingResolvers: Array<(releaseCallback: () => void) => void> = [];
 
-    async acquireLock(): Promise<() => void> {
+    async lock(): Promise<() => void> {
         if (this.isLocked) {
             return new Promise((resolve) => {
                 this.pendingResolvers.push(resolve);
@@ -10,14 +10,14 @@ export class MutexLock {
         }
 
         this.isLocked = true;
-        return this.createReleaseCallback();
+        return this.release();
     }
 
-    private createReleaseCallback = (): (() => void) => {
+    private release = (): (() => void) => {
         return () => {
             const nextResolver = this.pendingResolvers.shift();
             if (nextResolver) {
-                nextResolver(this.createReleaseCallback());
+                nextResolver(this.release());
             } else {
                 this.isLocked = false;
             }

@@ -14,10 +14,10 @@ class ApplicationServer {
     constructor() {
         this.tokenService = new SpotifyTokenService();
         this.tokenController = new TokenController(this.tokenService);
-        this.app = this.initializeApplication();
+        this.app = this.init();
     }
 
-    private initializeApplication(): Elysia {
+    private init(): Elysia {
         return new Elysia()
             .use(Logestic.preset('common'))
             .decorate({
@@ -34,9 +34,9 @@ class ApplicationServer {
                 set: { status?: number },
                 tokenController: TokenController
             }) => {
-                const cookies = this.parseCookies(headers.cookie);
+                const cookies = this.parse(headers.cookie);
 
-                return await tokenController.handleTokenRequest(
+                return await tokenController.handle(
                     query,
                     cookies,
                     (status) => {
@@ -52,13 +52,13 @@ class ApplicationServer {
                 message: 'Server is running smoothly'
             }))
             .onError(({ code, error, set }) => {
-                return ErrorMiddleware.handleGlobalError(code, error, (status) => {
+                return ErrorMiddleware.handle(code, error, (status) => {
                     set.status = status;
                 });
             });
     }
 
-    private parseCookies(cookieHeader?: string): Record<string, string> | undefined {
+    private parse(cookieHeader?: string): Record<string, string> | undefined {
         if (!cookieHeader) return undefined;
 
         const cookies: Record<string, string> = {};
@@ -73,7 +73,7 @@ class ApplicationServer {
         return Object.keys(cookies).length > 0 ? cookies : undefined;
     }
 
-    public startServer(): void {
+    public start(): void {
         this.app.listen(SERVER_PORT, () => {
             console.log(`Server running on port ${SERVER_PORT}`);
             console.log(`Health check: http://localhost:${SERVER_PORT}/health`);
@@ -81,23 +81,23 @@ class ApplicationServer {
             console.log(`Send cookies (especially sp_dc) in requests for authentication`);
         });
 
-        this.setupGracefulShutdown();
-        this.setupGlobalErrorHandling();
+        this.shutdown();
+        this.errors();
     }
 
-    private setupGracefulShutdown(): void {
-        const gracefulShutdown = (signal: string) => {
+    private shutdown(): void {
+        const exit = (signal: string) => {
             console.log(`\nReceived ${signal}. Initiating graceful shutdown...`);
             this.tokenService.cleanup();
             console.log('Service shutdown completed');
             process.exit(0);
         };
 
-        process.on("SIGINT", () => gracefulShutdown("SIGINT"));
-        process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+        process.on("SIGINT", () => exit("SIGINT"));
+        process.on("SIGTERM", () => exit("SIGTERM"));
     }
 
-    private setupGlobalErrorHandling(): void {
+    private errors(): void {
         process.on('uncaughtException', (error) => {
             console.error('[UncaughtException] Application crashed due to unhandled exception:', error);
             this.tokenService.cleanup();
@@ -113,4 +113,4 @@ class ApplicationServer {
 }
 
 const server = new ApplicationServer();
-server.startServer();
+server.start();

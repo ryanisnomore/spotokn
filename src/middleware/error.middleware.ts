@@ -1,5 +1,5 @@
 export class ErrorMiddleware {
-    static handleGlobalError(
+    static handle(
         code: string,
         error: unknown,
         setStatus: (status: number) => void

@@ -4,14 +4,13 @@ import type { ApiErrorResponse, SpotifyTokenData } from '../types/spotify.types'
 export class TokenController {
     constructor(private readonly tokenService: SpotifyTokenService) { }
 
-    async handleTokenRequest(
+    async handle(
         queryParams: { force?: string },
         cookies: Record<string, string> | undefined,
         setStatus: (status: number) => void
     ): Promise<SpotifyTokenData | ApiErrorResponse> {
-        const shouldForceRefresh = this.parseForceParameter(queryParams.force);
-
-        const cookieArray = this.extractCookies(cookies);
+        const force = this.parseForce(queryParams.force);
+        const cookieArray = this.extract(cookies);
 
         const spDcCookie = cookieArray.find(c => c.name === 'sp_dc');
         if (spDcCookie) {
@@ -19,8 +18,8 @@ export class TokenController {
         }
 
         try {
-            const tokenData = await this.tokenService.retrieveAccessToken(
-                shouldForceRefresh,
+            const tokenData = await this.tokenService.get(
+                force,
                 cookieArray.length > 0 ? cookieArray : undefined
             );
 
@@ -45,14 +44,14 @@ export class TokenController {
         }
     }
 
-    private parseForceParameter(forceParam?: string): boolean {
+    private parseForce(forceParam?: string): boolean {
         if (!forceParam) return false;
 
         const truthy = ["1", "yes", "true", "on"];
         return truthy.includes(forceParam.toLowerCase());
     }
 
-    private extractCookies(cookies?: Record<string, string>): Array<{ name: string, value: string }> {
+    private extract(cookies?: Record<string, string>): Array<{ name: string, value: string }> {
         if (!cookies) return [];
 
         return Object.entries(cookies).map(([name, value]) => ({

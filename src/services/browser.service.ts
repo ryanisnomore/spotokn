@@ -13,9 +13,8 @@ export class BrowserService {
         '--disable-renderer-backgrounding'
     ];
 
-    static async createBrowserInstance(): Promise<Browser> {
+    static async create(): Promise<Browser> {
         const customExecutablePath = Bun.env.BROWSER_PATH?.trim();
-
         const headlessMode = Bun.env.HEADLESS !== 'false';
 
         const launchConfig: LaunchOptions = {
@@ -33,7 +32,7 @@ export class BrowserService {
         return await chromium.launch(launchConfig);
     }
 
-    static async createNewPage(browser: Browser): Promise<Page> {
+    static async page(browser: Browser): Promise<Page> {
         const page = await browser.newPage();
         await page.setDefaultTimeout(this.DEFAULT_TIMEOUT);
 
@@ -44,7 +43,7 @@ export class BrowserService {
         return page;
     }
 
-    static async closeBrowserSafely(browser: Browser): Promise<void> {
+    static async close(browser: Browser): Promise<void> {
         try {
             await browser.close();
         } catch (error) {
