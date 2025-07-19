@@ -12,7 +12,7 @@ Fast Spotify access token generator for LavaSrc with caching.
 
 ## Quick Start
 ```bash
-git clone https://github.com/appujet/spotokn.git
+git clone https://github.com/ryanisnomore/spotokn.git
 cd spotokn
 bun install
 npx playwright install
@@ -91,4 +91,4 @@ bun run start
 
 ---
 
-**Need help?** Open an issue on [GitHub](https://github.com/appujet/spotokn/issues) or check the [Wiki](https://github.com/appujet/spotokn/wiki) for detailed guides.
+**Need help?** Open an issue on [GitHub](https://github.com/ryanisnomore/spotokn/issues) or check the [Wiki](https://github.com/ryanisnomore/spotokn/wiki) for detailed guides.
