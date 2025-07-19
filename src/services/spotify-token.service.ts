@@ -4,104 +4,69 @@ import type { SpotifyTokenData } from '../types/spotify.types';
 import type { Request, Response, Browser, Page } from 'playwright';
 
 export class SpotifyTokenService {
-    private readonly mutex = new MutexLock();
-    private token: SpotifyTokenData | null = null;
-    private timer: NodeJS.Timeout | null = null;
-    private isShuttingDown = false;
+    private readonly tokenMutex = new MutexLock();
+    private currentAccessToken: SpotifyTokenData | null = null;
+    private refreshTimer: NodeJS.Timeout | null = null;
 
-    private static readonly URL = 'https://open.spotify.com/';
-    private static readonly ENDPOINT = '/api/token';
-    private static readonly TIMEOUT = 45000;
-    private static readonly REFRESH_INTERVAL = 300000;
-    private static readonly MAX_RETRIES = 3;
+    private static readonly SPOTIFY_OPEN_URL = 'https://open.spotify.com/';
+    private static readonly TOKEN_ENDPOINT = '/api/token';
+    private static readonly REQUEST_TIMEOUT = 30000;
+    private static readonly CONTINUOUS_REFRESH_INTERVAL = 300000;
 
     constructor() {
-        this.init();
+        this.initializeTokenService();
     }
 
-    private async init(): Promise<void> {
-        if (this.isShuttingDown) return;
-
+    private async initializeTokenService(): Promise<void> {
         try {
-            console.log('Initializing token service...');
-            const token = await this.fetchWithRetry();
-            this.token = token;
-            this.startRefresh();
-            console.log('Token service initialized');
+            const initialToken = await this.fetchFreshToken();
+            this.currentAccessToken = initialToken;
+            this.startContinuousRefresh();
+            console.log('Spotify token service initialized successfully');
         } catch (error) {
-            console.error('Token service init failed:', error);
-            setTimeout(() => this.init(), 30000);
+            console.error('Failed to initialize Spotify token service:', error);
         }
     }
 
-    private startRefresh(): void {
-        if (this.isShuttingDown) return;
-
-        if (this.timer) {
-            clearTimeout(this.timer);
+    private startContinuousRefresh(): void {
+        if (this.refreshTimer) {
+            clearTimeout(this.refreshTimer);
         }
 
-        this.timer = setTimeout(async () => {
-            await this.bgRefresh();
-            this.startRefresh();
-        }, SpotifyTokenService.REFRESH_INTERVAL);
+        // Always refresh every 5 minutes regardless of token expiration
+        this.refreshTimer = setTimeout(async () => {
+            await this.performBackgroundRefresh();
+            this.startContinuousRefresh(); // Schedule next refresh
+        }, SpotifyTokenService.CONTINUOUS_REFRESH_INTERVAL);
 
-        console.log('Token refresh scheduled');
+        console.log(`Continuous token refresh scheduled every ${SpotifyTokenService.CONTINUOUS_REFRESH_INTERVAL / 1000}s`);
     }
 
-    private async bgRefresh(): Promise<void> {
-        if (this.isShuttingDown) return;
-
+    private async performBackgroundRefresh(): Promise<void> {
         try {
-            const release = await this.mutex.acquireLock();
+            const releaseCallback = await this.tokenMutex.acquireLock();
             try {
-                const token = await this.fetchWithRetry();
-                this.token = token;
-                console.log('Token refreshed in background');
+                const refreshedToken = await this.fetchFreshToken();
+                this.currentAccessToken = refreshedToken;
+                console.log('Token refreshed successfully in background');
             } finally {
-                release();
+                releaseCallback();
             }
         } catch (error) {
-            console.error('Background refresh failed:', error);
+            console.error('Background token refresh failed:', error);
         }
     }
 
-    private async fetchWithRetry(cookies?: Array<{ name: string, value: string }>): Promise<SpotifyTokenData> {
-        let lastError: Error | null = null;
-
-        for (let attempt = 1; attempt <= SpotifyTokenService.MAX_RETRIES; attempt++) {
-            if (this.isShuttingDown) {
-                throw new Error('Service shutting down');
-            }
-
-            try {
-                console.log(`Token fetch attempt ${attempt}/${SpotifyTokenService.MAX_RETRIES}`);
-                return await this.fetchToken(cookies);
-            } catch (error) {
-                lastError = error instanceof Error ? error : new Error(String(error));
-                console.warn(`Attempt ${attempt} failed:`, lastError.message);
-
-                if (attempt < SpotifyTokenService.MAX_RETRIES) {
-                    const delay = attempt * 2000; // Progressive delay
-                    console.log(`Retrying in ${delay}ms...`);
-                    await new Promise(resolve => setTimeout(resolve, delay));
-                }
-            }
-        }
-
-        throw lastError || new Error('All fetch attempts failed');
-    }
-
-    private async fetchToken(cookies?: Array<{ name: string, value: string }>): Promise<SpotifyTokenData> {
+    private async fetchFreshToken(cookies?: Array<{ name: string, value: string }>): Promise<SpotifyTokenData> {
         return new Promise<SpotifyTokenData>((resolve, reject) => {
             const timeoutId = setTimeout(() => {
-                reject(new Error('Token fetch timeout'));
-            }, SpotifyTokenService.TIMEOUT);
+                reject(new Error('Token fetch operation timed out'));
+            }, SpotifyTokenService.REQUEST_TIMEOUT);
 
-            this.browserFetch(cookies)
-                .then((data) => {
+            this.executeBrowserTokenFetch(cookies)
+                .then((tokenData) => {
                     clearTimeout(timeoutId);
-                    resolve(data);
+                    resolve(tokenData);
                 })
                 .catch((error) => {
                     clearTimeout(timeoutId);
@@ -110,79 +75,68 @@ export class SpotifyTokenService {
         });
     }
 
-    private async browserFetch(cookies?: Array<{ name: string, value: string }>): Promise<SpotifyTokenData> {
+    private async executeBrowserTokenFetch(cookies?: Array<{ name: string, value: string }>): Promise<SpotifyTokenData> {
         let browser: Browser | null = null;
         let page: Page | null = null;
 
         try {
-            console.log('Opening browser...');
-            browser = await BrowserService.create();
-            page = await BrowserService.newPage(browser);
+            console.log('Opening new browser session for token fetch...');
+            browser = await BrowserService.createBrowserInstance();
+            page = await BrowserService.createNewPage(browser);
 
-            let processed = false;
+            let tokenRequestProcessed = false;
 
             return new Promise<SpotifyTokenData>((resolve, reject) => {
-                const cleanup = async (error?: Error) => {
-                    if (processed) return;
-                    processed = true;
-
+                const cleanupAndReject = async (error: Error) => {
                     page?.removeAllListeners('requestfinished');
-                    await this.closeBrowser(browser);
-
-                    if (error) {
-                        reject(error);
-                    }
+                    await this.closeBrowserSession(browser);
+                    reject(error);
                 };
 
-                const success = async (data: SpotifyTokenData) => {
-                    if (processed) return;
-                    processed = true;
-
+                const cleanupAndResolve = async (tokenData: SpotifyTokenData) => {
                     page?.removeAllListeners('requestfinished');
-                    await this.closeBrowser(browser);
-                    resolve(data);
+                    await this.closeBrowserSession(browser);
+                    resolve(tokenData);
                 };
 
-                const onRequest = async (request: Request) => {
-                    if (!request.url().includes(SpotifyTokenService.ENDPOINT)) return;
-                    if (processed) return;
+                const requestHandler = async (request: Request) => {
+                    if (!request.url().includes(SpotifyTokenService.TOKEN_ENDPOINT)) return;
+
+                    tokenRequestProcessed = true;
 
                     try {
                         const response: Response | null = await request.response();
 
                         if (!response || !response.ok()) {
-                            await cleanup(new Error('Invalid API response'));
+                            await cleanupAndReject(new Error('Invalid response from Spotify API'));
                             return;
                         }
 
-                        const data = await response.json();
-                        const clean = this.cleanData(data);
+                        const responseData = await response.json();
+                        const sanitizedData = this.sanitizeTokenData(responseData);
 
-                        console.log('Token retrieved successfully');
-                        await success(clean);
+                        console.log('Token successfully retrieved, closing browser session...');
+                        await cleanupAndResolve(sanitizedData);
                     } catch (error) {
-                        await cleanup(new Error(`Response processing failed: ${error}`));
+                        await cleanupAndReject(new Error(`Failed to process token response: ${error}`));
                     }
                 };
 
-                page!.on('requestfinished', onRequest);
+                page!.on('requestfinished', requestHandler);
 
-                // Set timeout for the entire operation
-                setTimeout(async () => {
-                    await cleanup(new Error('Browser operation timeout'));
-                }, SpotifyTokenService.TIMEOUT - 5000);
-
-                this.setCookiesAndGo(page!, cookies).catch(async (error) => {
-                    await cleanup(new Error(`Navigation failed: ${error}`));
+                this.setCookiesAndNavigate(page!, cookies).catch(async (error) => {
+                    if (!tokenRequestProcessed) {
+                        await cleanupAndReject(new Error(`Failed to navigate to Spotify: ${error}`));
+                    }
                 });
             });
         } catch (error) {
-            await this.closeBrowser(browser);
-            throw new Error(`Browser session failed: ${error}`);
+            await this.closeBrowserSession(browser);
+            throw new Error(`Failed to initialize browser session: ${error}`);
         }
     }
 
-    private async setCookiesAndGo(page: Page, cookies?: Array<{ name: string, value: string }>): Promise<void> {
+    private async setCookiesAndNavigate(page: Page, cookies?: Array<{ name: string, value: string }>): Promise<void> {
         if (cookies && cookies.length > 0) {
             const cookieObjects = cookies.map(cookie => ({
                 name: cookie.name,
@@ -195,92 +149,88 @@ export class SpotifyTokenService {
             }));
 
             await page.context().addCookies(cookieObjects);
-            console.log(`Set ${cookies.length} cookies`);
+            console.log(`Set ${cookies.length} cookies, including sp_dc if provided`);
         }
 
-        await page.goto(SpotifyTokenService.URL, {
-            waitUntil: 'domcontentloaded',
-            timeout: 30000
-        });
+        await page.goto(SpotifyTokenService.SPOTIFY_OPEN_URL);
     }
 
-    private async closeBrowser(browser: Browser | null): Promise<void> {
+    private async closeBrowserSession(browser: Browser | null): Promise<void> {
         if (browser) {
             try {
-                await BrowserService.close(browser);
-                console.log('Browser closed');
+                await BrowserService.closeBrowserSafely(browser);
+                console.log('Browser session closed successfully');
             } catch (error) {
-                console.warn('Browser close failed:', error);
+                console.warn('Failed to close browser session:', error);
             }
         }
     }
 
-    private cleanData(raw: unknown): SpotifyTokenData {
-        if (typeof raw === 'object' && raw !== null && '_notes' in raw) {
-            delete (raw as Record<string, unknown>)._notes;
+    private sanitizeTokenData(rawData: unknown): SpotifyTokenData {
+        if (typeof rawData === 'object' && rawData !== null && '_notes' in rawData) {
+            delete (rawData as Record<string, unknown>)._notes;
         }
-        return raw as SpotifyTokenData;
+        return rawData as SpotifyTokenData;
     }
 
-    private shouldRefresh(cached: SpotifyTokenData | null, hasSpDc: boolean): boolean {
-        if (!cached) return true;
+    private shouldForceRefresh(
+        cachedToken: SpotifyTokenData | null,
+        hasSpDcCookie: boolean
+    ): boolean {
+        if (!cachedToken) return true;
 
-        if (hasSpDc) {
-            console.log('sp_dc cookie provided, forcing fresh token');
+        if (hasSpDcCookie) {
+            console.log('sp_dc cookie provided, forcing fresh token fetch');
             return true;
         }
 
-        if (!cached.isAnonymous) {
-            console.log('Switching to anonymous token');
+        if (!cachedToken.isAnonymous) {
+            console.log('No sp_dc cookie but current token is authenticated, forcing anonymous token refresh');
             return true;
         }
 
-        const expired = (cached.accessTokenExpirationTimestampMs - 10000) <= Date.now();
-        if (expired) {
-            console.log('Token expired, refreshing');
+        const isExpired = (cachedToken.accessTokenExpirationTimestampMs - 10000) <= Date.now();
+        if (isExpired) {
+            console.log('Token is expired, forcing refresh');
             return true;
         }
 
         return false;
     }
 
-    public async getToken(
-        force = false,
+    public async retrieveAccessToken(
+        forceRefresh = false,
         cookies?: Array<{ name: string, value: string }>
     ): Promise<SpotifyTokenData | null> {
-        if (this.isShuttingDown) {
-            return null;
-        }
-
         try {
-            const hasSpDc = cookies?.some(c => c.name === 'sp_dc') || false;
-            const cached = this.token;
+            const hasSpDcCookie = cookies?.some(cookie => cookie.name === 'sp_dc') || false;
+            const cachedToken = this.currentAccessToken;
 
-            const needRefresh = force || this.shouldRefresh(cached, hasSpDc);
+            const shouldRefresh = forceRefresh || this.shouldForceRefresh(cachedToken, hasSpDcCookie);
 
-            if (!needRefresh && cached) {
-                console.log(`Returning cached ${cached.isAnonymous ? 'anonymous' : 'authenticated'} token`);
-                return cached;
+            if (!shouldRefresh && cachedToken) {
+                console.log(`Returning cached ${cachedToken.isAnonymous ? 'anonymous' : 'authenticated'} token`);
+                return cachedToken;
             }
 
-            const release = await this.mutex.acquireLock();
+            const releaseCallback = await this.tokenMutex.acquireLock();
             try {
-                const recent = this.token;
-                const stillNeed = force || this.shouldRefresh(recent, hasSpDc);
+                const recentToken = this.currentAccessToken;
+                const stillShouldRefresh = forceRefresh || this.shouldForceRefresh(recentToken, hasSpDcCookie);
 
-                if (!stillNeed && recent) {
-                    console.log(`Returning recent ${recent.isAnonymous ? 'anonymous' : 'authenticated'} token`);
-                    return recent;
+                if (!stillShouldRefresh && recentToken) {
+                    console.log(`Returning recent cached ${recentToken.isAnonymous ? 'anonymous' : 'authenticated'} token`);
+                    return recentToken;
                 }
 
-                console.log(`Fetching fresh ${hasSpDc ? 'authenticated' : 'anonymous'} token`);
-                const fresh = await this.fetchWithRetry(cookies);
-                this.token = fresh;
+                console.log(`Fetching fresh ${hasSpDcCookie ? 'authenticated' : 'anonymous'} token`);
+                const freshToken = await this.fetchFreshToken(cookies);
+                this.currentAccessToken = freshToken;
 
-                console.log(`Retrieved ${fresh.isAnonymous ? 'anonymous' : 'authenticated'} token`);
-                return fresh;
+                console.log(`Successfully retrieved ${freshToken.isAnonymous ? 'anonymous' : 'authenticated'} token`);
+                return freshToken;
             } finally {
-                release();
+                releaseCallback();
             }
         } catch (error) {
             console.error('Token retrieval failed:', error);
@@ -289,12 +239,9 @@ export class SpotifyTokenService {
     }
 
     public cleanup(): void {
-        console.log('Cleaning up token service...');
-        this.isShuttingDown = true;
-
-        if (this.timer) {
-            clearTimeout(this.timer);
-            this.timer = null;
+        if (this.refreshTimer) {
+            clearTimeout(this.refreshTimer);
+            this.refreshTimer = null;
         }
 
         console.log('Token service cleanup completed');

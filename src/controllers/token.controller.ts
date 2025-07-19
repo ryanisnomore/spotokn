@@ -2,53 +2,62 @@ import type { SpotifyTokenService } from '../services/spotify-token.service';
 import type { ApiErrorResponse, SpotifyTokenData } from '../types/spotify.types';
 
 export class TokenController {
-    constructor(private readonly service: SpotifyTokenService) { }
+    constructor(private readonly tokenService: SpotifyTokenService) { }
 
-    async handle(
-        query: { force?: string },
+    async handleTokenRequest(
+        queryParams: { force?: string },
         cookies: Record<string, string> | undefined,
         setStatus: (status: number) => void
     ): Promise<SpotifyTokenData | ApiErrorResponse> {
-        const force = this.parseForce(query.force);
-        const cookieArray = this.getCookies(cookies);
+        const shouldForceRefresh = this.parseForceParameter(queryParams.force);
 
-        const spDc = cookieArray.find(c => c.name === 'sp_dc');
-        if (spDc) {
-            console.log('sp_dc cookie received');
+        const cookieArray = this.extractCookies(cookies);
+
+        const spDcCookie = cookieArray.find(c => c.name === 'sp_dc');
+        if (spDcCookie) {
+            console.log('sp_dc cookie received for authentication');
         }
 
         try {
-            const token = await this.service.getToken(force, cookieArray.length > 0 ? cookieArray : undefined);
+            const tokenData = await this.tokenService.retrieveAccessToken(
+                shouldForceRefresh,
+                cookieArray.length > 0 ? cookieArray : undefined
+            );
 
-            if (!token) {
+            if (!tokenData) {
                 setStatus(503);
                 return {
                     success: false,
-                    error: 'Token service unavailable',
+                    error: 'Token service temporarily unavailable',
                     timestamp: Date.now()
                 };
             }
 
-            return token;
+            return tokenData;
         } catch (error) {
-            const msg = error instanceof Error ? error.message : 'Unknown error';
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
             setStatus(500);
             return {
                 success: false,
-                error: msg,
+                error: errorMessage,
                 timestamp: Date.now()
             };
         }
     }
 
-    private parseForce(param?: string): boolean {
-        if (!param) return false;
+    private parseForceParameter(forceParam?: string): boolean {
+        if (!forceParam) return false;
+
         const truthy = ["1", "yes", "true", "on"];
-        return truthy.includes(param.toLowerCase());
+        return truthy.includes(forceParam.toLowerCase());
     }
 
-    private getCookies(cookies?: Record<string, string>): Array<{ name: string, value: string }> {
+    private extractCookies(cookies?: Record<string, string>): Array<{ name: string, value: string }> {
         if (!cookies) return [];
-        return Object.entries(cookies).map(([name, value]) => ({ name, value }));
+
+        return Object.entries(cookies).map(([name, value]) => ({
+            name,
+            value
+        }));
     }
 }
