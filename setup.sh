@@ -77,9 +77,6 @@ fi
 info "Installing dependencies with Bun…"
 su -l "$INSTALLER_USER" -c "cd $DIR && bun install"
 
-info "Installing Playwright browsers and dependencies..."
-su -l "$INSTALLER_USER" -c "cd $DIR && bunx playwright install --with-deps"
-
 # ——————————————————————————————————————————————————————————————————
 # 4) CREATE ENV FILE (if not exists)
 # ——————————————————————————————————————————————————————————————————
