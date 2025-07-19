@@ -1,27 +1,22 @@
 export class ErrorMiddleware {
-    static handleGlobalError(
-        code: string,
-        error: unknown,
-        setStatus: (status: number) => void
-    ) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-
-        console.error(`[GlobalErrorHandler] ${code}: ${errorMessage}`);
+    static handle(code: string, error: unknown, setStatus: (status: number) => void) {
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        console.error(`[Error] ${code}: ${msg}`);
 
         switch (code) {
             case 'NOT_FOUND':
                 setStatus(404);
                 return {
                     error: 'Endpoint not found',
-                    suggestion: 'Check the API documentation for valid endpoints',
+                    suggestion: 'Check API docs',
                     timestamp: Date.now()
                 };
 
             case 'VALIDATION':
                 setStatus(400);
                 return {
-                    error: 'Request validation failed',
-                    details: errorMessage,
+                    error: 'Validation failed',
+                    details: msg,
                     timestamp: Date.now()
                 };
 
@@ -29,7 +24,7 @@ export class ErrorMiddleware {
                 setStatus(400);
                 return {
                     error: 'Invalid request format',
-                    details: 'Please check your request body and headers',
+                    details: 'Check headers and body',
                     timestamp: Date.now()
                 };
 

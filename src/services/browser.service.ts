@@ -1,8 +1,8 @@
 import { chromium, type Browser, type LaunchOptions, type Page } from "playwright";
 
 export class BrowserService {
-    private static readonly DEFAULT_TIMEOUT = 30000;
-    private static readonly LAUNCH_ARGS = [
+    private static readonly TIMEOUT = 45000;
+    private static readonly ARGS = [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
@@ -10,45 +10,62 @@ export class BrowserService {
         '--disable-extensions',
         '--disable-background-timer-throttling',
         '--disable-backgrounding-occluded-windows',
-        '--disable-renderer-backgrounding'
+        '--disable-renderer-backgrounding',
+        '--disable-web-security',
+        '--disable-features=VizDisplayCompositor',
+        '--single-process'
     ];
 
-    static async createBrowserInstance(): Promise<Browser> {
-        const customExecutablePath = Bun.env.BROWSER_PATH?.trim();
+    static async create(): Promise<Browser> {
+        const execPath = Bun.env.BROWSER_PATH?.trim();
+        const headless = Bun.env.HEADLESS !== 'false';
 
-        const headlessMode = Bun.env.HEADLESS !== 'false';
-
-        const launchConfig: LaunchOptions = {
-            headless: headlessMode,
-            args: this.LAUNCH_ARGS,
-            timeout: this.DEFAULT_TIMEOUT,
-            devtools: false
+        const config: LaunchOptions = {
+            headless,
+            args: this.ARGS,
+            timeout: this.TIMEOUT,
+            devtools: false,
+            slowMo: 100, 
+            chromiumSandbox: false
         };
 
-        if (customExecutablePath) {
-            launchConfig.executablePath = customExecutablePath;
+        if (execPath) {
+            config.executablePath = execPath;
         }
 
-        console.log(`Launching browser in ${headlessMode ? 'headless' : 'non-headless'} mode`);
-        return await chromium.launch(launchConfig);
+        console.log(`Launching browser (headless: ${headless})`);
+
+        try {
+            const browser = await chromium.launch(config);
+
+            const testPage = await browser.newPage();
+            await testPage.close();
+
+            return browser;
+        } catch (error) {
+            console.error('Browser launch failed:', error);
+            throw new Error(`Browser init failed: ${error}`);
+        }
     }
 
-    static async createNewPage(browser: Browser): Promise<Page> {
+    static async newPage(browser: Browser): Promise<Page> {
         const page = await browser.newPage();
-        await page.setDefaultTimeout(this.DEFAULT_TIMEOUT);
+        await page.setDefaultTimeout(this.TIMEOUT);
+
+        await page.setViewportSize({ width: 1280, height: 720 });
 
         await page.setExtraHTTPHeaders({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         });
 
         return page;
     }
 
-    static async closeBrowserSafely(browser: Browser): Promise<void> {
+    static async close(browser: Browser): Promise<void> {
         try {
             await browser.close();
         } catch (error) {
-            console.warn('Failed to close browser gracefully:', error);
+            console.warn('Browser close failed:', error);
         }
     }
 }

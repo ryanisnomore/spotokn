@@ -4,66 +4,60 @@ import { SpotifyTokenService } from "./services/spotify-token.service";
 import { TokenController } from "./controllers/token.controller";
 import { ErrorMiddleware } from "./middleware/error.middleware";
 
-const SERVER_PORT = parseInt(Bun.env.PORT || '3000', 10);
+const PORT = parseInt(Bun.env.PORT || '3000', 10);
 
-class ApplicationServer {
+class App {
     private readonly app: Elysia;
-    private readonly tokenService: SpotifyTokenService;
-    private readonly tokenController: TokenController;
+    private readonly service: SpotifyTokenService;
+    private readonly controller: TokenController;
 
     constructor() {
-        this.tokenService = new SpotifyTokenService();
-        this.tokenController = new TokenController(this.tokenService);
-        this.app = this.initializeApplication();
+        this.service = new SpotifyTokenService();
+        this.controller = new TokenController(this.service);
+        this.app = this.init();
     }
 
-    private initializeApplication(): Elysia {
+    private init(): Elysia {
         return new Elysia()
             .use(Logestic.preset('common'))
             .decorate({
-                tokenController: this.tokenController
+                controller: this.controller
             })
             .get('/api/token', async ({
                 query,
                 headers,
                 set,
-                tokenController
+                controller
             }: {
                 query: { force?: string },
                 headers: Record<string, string | undefined>,
                 set: { status?: number },
-                tokenController: TokenController
+                controller: TokenController
             }) => {
                 const cookies = this.parseCookies(headers.cookie);
-
-                return await tokenController.handleTokenRequest(
-                    query,
-                    cookies,
-                    (status) => {
-                        set.status = status;
-                    }
-                );
+                return await controller.handle(query, cookies, (status) => {
+                    set.status = status;
+                });
             })
             .get('/health', () => ({
                 status: 'healthy',
                 timestamp: Date.now(),
                 uptime: process.uptime(),
                 version: `Bun v${Bun.version}`,
-                message: 'Server is running smoothly'
+                message: 'Server running'
             }))
             .onError(({ code, error, set }) => {
-                return ErrorMiddleware.handleGlobalError(code, error, (status) => {
+                return ErrorMiddleware.handle(code, error, (status) => {
                     set.status = status;
                 });
             });
     }
 
-    private parseCookies(cookieHeader?: string): Record<string, string> | undefined {
-        if (!cookieHeader) return undefined;
+    private parseCookies(header?: string): Record<string, string> | undefined {
+        if (!header) return undefined;
 
         const cookies: Record<string, string> = {};
-
-        cookieHeader.split(';').forEach(cookie => {
+        header.split(';').forEach(cookie => {
             const [name, value] = cookie.trim().split('=');
             if (name && value) {
                 cookies[name] = decodeURIComponent(value);
@@ -73,44 +67,44 @@ class ApplicationServer {
         return Object.keys(cookies).length > 0 ? cookies : undefined;
     }
 
-    public startServer(): void {
-        this.app.listen(SERVER_PORT, () => {
-            console.log(`Server running on port ${SERVER_PORT}`);
-            console.log(`Health check: http://localhost:${SERVER_PORT}/health`);
-            console.log(`Token endpoint: http://localhost:${SERVER_PORT}/api/token`);
-            console.log(`Send cookies (especially sp_dc) in requests for authentication`);
+    public start(): void {
+        this.app.listen(PORT, () => {
+            console.log(`Server running on port ${PORT}`);
+            console.log(`Health: http://localhost:${PORT}/health`);
+            console.log(`Token: http://localhost:${PORT}/api/token`);
+            console.log('Send sp_dc cookie for authentication');
         });
 
-        this.setupGracefulShutdown();
-        this.setupGlobalErrorHandling();
+        this.setupShutdown();
+        this.setupErrorHandling();
     }
 
-    private setupGracefulShutdown(): void {
-        const gracefulShutdown = (signal: string) => {
-            console.log(`\nReceived ${signal}. Initiating graceful shutdown...`);
-            this.tokenService.cleanup();
-            console.log('Service shutdown completed');
+    private setupShutdown(): void {
+        const shutdown = (signal: string) => {
+            console.log(`\nReceived ${signal}. Shutting down...`);
+            this.service.cleanup();
+            console.log('Shutdown completed');
             process.exit(0);
         };
 
-        process.on("SIGINT", () => gracefulShutdown("SIGINT"));
-        process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+        process.on("SIGINT", () => shutdown("SIGINT"));
+        process.on("SIGTERM", () => shutdown("SIGTERM"));
     }
 
-    private setupGlobalErrorHandling(): void {
+    private setupErrorHandling(): void {
         process.on('uncaughtException', (error) => {
-            console.error('[UncaughtException] Application crashed due to unhandled exception:', error);
-            this.tokenService.cleanup();
+            console.error('[UncaughtException]:', error);
+            this.service.cleanup();
             process.exit(1);
         });
 
         process.on('unhandledRejection', (reason, promise) => {
-            console.error('[UnhandledRejection] Application crashed due to unhandled promise rejection:', reason, promise);
-            this.tokenService.cleanup();
+            console.error('[UnhandledRejection]:', reason, promise);
+            this.service.cleanup();
             process.exit(1);
         });
     }
 }
 
-const server = new ApplicationServer();
-server.startServer();
+const app = new App();
+app.start();

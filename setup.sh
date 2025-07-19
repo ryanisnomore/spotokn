@@ -35,7 +35,42 @@ info "Setting up $NAME…"
 info "Base directory: $DIR/src/app.ts"
 
 # ——————————————————————————————————————————————————————————————————
-# 1) INSTALL BUN (if needed)
+# 1) SYSTEM DEPENDENCIES
+# ——————————————————————————————————————————————————————————————————
+
+info "Installing system dependencies for Playwright..."
+
+# Update package list
+apt-get update -qq
+
+# Install essential dependencies for headless browser
+apt-get install -y \
+    wget \
+    gnupg \
+    ca-certificates \
+    fonts-liberation \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libatspi2.0-0 \
+    libcups2 \
+    libdbus-1-3 \
+    libdrm2 \
+    libgtk-3-0 \
+    libnspr4 \
+    libnss3 \
+    libwayland-client0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxkbcommon0 \
+    libxrandr2 \
+    xvfb \
+    fonts-noto-color-emoji \
+    libgbm1
+
+# ——————————————————————————————————————————————————————————————————
+# 2) INSTALL BUN (if needed)
 # ——————————————————————————————————————————————————————————————————
 
 if ! command -v bun &>/dev/null; then
@@ -43,7 +78,7 @@ if ! command -v bun &>/dev/null; then
   su -l "$INSTALLER_USER" -c 'curl -fsSL https://bun.sh/install | bash'
 fi
 
-# Export the user’s bun into root’s PATH
+# Export the user's bun into root's PATH
 if [ -d "$BUN_INSTALL_DIR" ]; then
   export PATH="$BUN_INSTALL_DIR:$PATH"
 fi
@@ -62,14 +97,40 @@ if [ ! -L /usr/local/bin/bun ]; then
 fi
 
 # ——————————————————————————————————————————————————————————————————
-# 2) INSTALL PROJECT DEPENDENCIES
+# 3) INSTALL PROJECT DEPENDENCIES
 # ——————————————————————————————————————————————————————————————————
 
 info "Installing dependencies with Bun…"
-su -l "$INSTALLER_USER" -c "cd $DIR && bun install --production && npx playwright install && npx playwright install-deps"
+su -l "$INSTALLER_USER" -c "cd $DIR && bun install --production"
+
+info "Installing Playwright browsers and dependencies..."
+su -l "$INSTALLER_USER" -c "cd $DIR && npx playwright install chromium"
+su -l "$INSTALLER_USER" -c "cd $DIR && npx playwright install-deps chromium"
 
 # ——————————————————————————————————————————————————————————————————
-# 3) CREATE systemd SERVICE
+# 4) CREATE ENV FILE (if not exists)
+# ——————————————————————————————————————————————————————————————————
+
+ENV_FILE="$DIR/.env"
+if [ ! -f "$ENV_FILE" ]; then
+  info "Creating default .env file..."
+  cat > "$ENV_FILE" <<EOF
+# Server Configuration
+PORT=3000
+NODE_ENV=production
+
+# Browser Configuration
+HEADLESS=true
+# BROWSER_PATH=/usr/bin/chromium-browser
+
+# Set to false for debugging
+# HEADLESS=false
+EOF
+  chown "$INSTALLER_USER:$INSTALLER_USER" "$ENV_FILE"
+fi
+
+# ——————————————————————————————————————————————————————————————————
+# 5) CREATE systemd SERVICE
 # ——————————————————————————————————————————————————————————————————
 
 info "🧾 Creating systemd service..."
@@ -78,23 +139,35 @@ cat > "$SERVICE_FILE" <<EOF
 [Unit]
 Description=$NAME Service
 After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
 
 [Service]
 Type=simple
-# Use the symlinked bun so root and others can start it
 ExecStart=$BUN_INSTALL_DIR/bun --env-file=$DIR/.env $DIR/src/app.ts
 WorkingDirectory=$DIR
 Restart=always
-RestartSec=5
+RestartSec=10
 User=$INSTALLER_USER
 Environment=NODE_ENV=$NODE_ENV
+Environment=DISPLAY=:99
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=$DIR $USER_HOME/.cache
+
+# Resource limits
+MemoryMax=1G
+CPUQuota=200%
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
 # ——————————————————————————————————————————————————————————————————
-# 4) RELOAD & START SERVICE
+# 6) RELOAD & START SERVICE
 # ——————————————————————————————————————————————————————————————————
 
 info "🔄 Reloading systemd daemon..."
@@ -104,8 +177,18 @@ info "✅ Enabling and starting $NAME service..."
 systemctl enable "$NAME"
 systemctl start  "$NAME"
 
-info "✅ All done! Use the following to manage the $NAME service:"
+# Wait a moment and check status
+sleep 3
+if systemctl is-active --quiet "$NAME"; then
+  info "✅ Service is running successfully!"
+else
+  info "⚠️  Service may have issues. Check logs with: journalctl -u $NAME -f"
+fi
+
+info "✅ Setup complete! Management commands:"
 echo "  • systemctl status $NAME"
 echo "  • journalctl -u $NAME -f"
 echo "  • systemctl stop $NAME"
 echo "  • systemctl restart $NAME"
+echo ""
+echo "🌐 Service will be available at: http://localhost:3000/api/token"
