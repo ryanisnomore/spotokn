@@ -127,6 +127,8 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ReadWritePaths=$DIR $USER_HOME/.cache
+AmbientCapabilities=CAP_SYS_ADMIN
+NoNewPrivileges=false
 
 # Resource limits
 MemoryMax=1G
