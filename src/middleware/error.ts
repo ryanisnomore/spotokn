@@ -1,43 +1,33 @@
-export class ErrorMiddleware {
-    static handle(
-        code: string,
-        error: unknown,
-        setStatus: (status: number) => void
-    ) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+import { logs } from '../utils/logger';
 
-        console.error(`[GlobalErrorHandler] ${code}: ${errorMessage}`);
+export class ErrorMiddleware {
+    static handle(code: string, error: unknown, setStatus: (status: number) => void) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        logs('error', `Global error handler - ${code}`, errorMessage);
 
         switch (code) {
             case 'NOT_FOUND':
                 setStatus(404);
                 return {
+                    success: false,
                     error: 'Endpoint not found',
-                    suggestion: 'Check the API documentation for valid endpoints',
                     timestamp: Date.now()
                 };
 
             case 'VALIDATION':
                 setStatus(400);
                 return {
+                    success: false,
                     error: 'Request validation failed',
                     details: errorMessage,
-                    timestamp: Date.now()
-                };
-
-            case 'PARSE':
-                setStatus(400);
-                return {
-                    error: 'Invalid request format',
-                    details: 'Please check your request body and headers',
                     timestamp: Date.now()
                 };
 
             default:
                 setStatus(500);
                 return {
+                    success: false,
                     error: 'Internal server error',
-                    requestId: Math.random().toString(36).substr(2, 9),
                     timestamp: Date.now()
                 };
         }
