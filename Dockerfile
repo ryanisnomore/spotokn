@@ -6,7 +6,7 @@ WORKDIR /app
 
 # Copy package.json and bun.lockb to the working directory
 # This allows Bun to cache dependencies
-COPY package.json bun.lockb ./
+COPY package.json ./
 
 # Install dependencies
 RUN bun install --frozen-lockfile
