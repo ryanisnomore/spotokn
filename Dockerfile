@@ -4,12 +4,11 @@ FROM oven/bun:latest
 # Set the working directory in the container
 WORKDIR /app
 
-# Copy package.json and bun.lockb to the working directory
-# This allows Bun to cache dependencies
+# Copy package.json first for better caching
 COPY package.json ./
 
-# Install dependencies
-RUN bun install --frozen-lockfile
+# Install dependencies (remove --frozen-lockfile if you don't have bun.lockb)
+RUN bun install
 
 # Copy the rest of the application code
 COPY . .
@@ -18,4 +17,4 @@ COPY . .
 EXPOSE 3000
 
 # Command to run the application
-CMD ["bun", "--env-file=.env", "run", "src/app.ts"]
+CMD ["bun", "run", "src/app.ts"]
