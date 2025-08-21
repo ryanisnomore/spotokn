@@ -28,7 +28,7 @@ bun run start
 ```yaml
 spotify:
   preferAnonymousToken: true
-  customAnonymousTokenEndpoint: "http://yourserver/api/token"
+  customTokenEndpoint: "http://yourserver/api/token"
 ```
 
 ## Response Format
